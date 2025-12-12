@@ -11,7 +11,18 @@ const filtrosController = {
                 return await session.run('MATCH (i:Instituicao) RETURN i ORDER BY i.NM_ENTIDADE_ENSINO');
             },
             orientadores: async () => {
-                return await session.run('MATCH (o:Orientador) RETURN o ORDER BY o.NM_ORIENTADOR_PRINCIPAL');
+                const { instituicoes } = req.query;
+                let query = 'MATCH (o:Orientador)<-[:ORIENTADOR]-(d:Discente)-[:INSTITUICAO]->(i:Instituicao)';
+
+                if (instituicoes && instituicoes.length > 0) {
+                    query += ' WHERE i.NM_ENTIDADE_ENSINO IN $instituicoes';
+                }
+
+                query += ' RETURN DISTINCT o ORDER BY o.NM_ORIENTADOR_PRINCIPAL';
+
+                return await session.run(query, {
+                    instituicoes: Array.isArray(instituicoes) ? instituicoes : [instituicoes]
+                });
             }
         }
 

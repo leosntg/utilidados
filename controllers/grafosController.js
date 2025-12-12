@@ -2,38 +2,71 @@ const driver = require('../database/neo4j');
 
 const grafosController = {
     index: async (req, res) => {
-        const { instituicao, orientador } = req.query;
+        let { instituicao, orientador } = req.query;
+
+        // Converte instituicao para array se for string
+        if (instituicao && !Array.isArray(instituicao)) {
+            instituicao = [instituicao];
+        }
 
         const session = driver.session();
 
         try {
-            const result = await session.run(`
-            MATCH (d:Discente)-[:INSTITUICAO]->(i:Instituicao), (d)-[:CURSO]->(c:Curso), (d)-[:ORIENTADOR]->(o:Orientador)
+            console.log('Parâmetros recebidos:', { instituicao, orientador });
+
+            // Query para a tabela (sem limite)
+            const resultTabela = await session.run(`
+            MATCH (d:Discente)-[:INSTITUICAO]->(i:Instituicao),
+                  (d)-[:CURSO]->(c:Curso),
+                  (d)-[:ORIENTADOR]->(o:Orientador)
             WHERE
-                ($instituicao IS NULL OR i.NM_ENTIDADE_ENSINO = $instituicao) AND
-                ($orientador IS NULL OR o.NM_ORIENTADOR_PRINCIPAL = $orientador)
-            RETURN d, i, c, o
+                (size($instituicoes) = 0 OR i.NM_ENTIDADE_ENSINO IN $instituicoes) AND
+                (coalesce($orientador, '') = '' OR o.NM_ORIENTADOR_PRINCIPAL = $orientador)
+            WITH d, i, c, o
+            ORDER BY d.NM_DISCENTE
+            RETURN d, i, c, o`, {
+                instituicoes: instituicao || [],
+                orientador: orientador || null
+            });
+
+            // Query para o grafo (limitada a 100)
+            const resultGrafo = await session.run(`
+            MATCH (d:Discente)-[:INSTITUICAO]->(i:Instituicao),
+                  (d)-[:CURSO]->(c:Curso),
+                  (d)-[:ORIENTADOR]->(o:Orientador)
+            WHERE
+                (size($instituicoes) = 0 OR i.NM_ENTIDADE_ENSINO IN $instituicoes) AND
+                (coalesce($orientador, '') = '' OR o.NM_ORIENTADOR_PRINCIPAL = $orientador)
+            WITH d, i, c, o
+            ORDER BY d.NM_DISCENTE
             LIMIT 100
-            `, {
-                instituicao: instituicao?.trim() || null,
-                orientador: orientador?.trim() || null
+            RETURN d, i, c, o`, {
+                instituicoes: instituicao || [],
+                orientador: orientador || null
             });
 
             const nodeSet = new Set();
             const nodes = [];
             const edges = [];
 
-            const gerarTitle = (propriedades) => {
-                return Object.entries(propriedades)
+            const gerarTitle = (propriedades, extras = {}) => {
+                return Object.entries({ ...propriedades, ...extras })
                     .map(([key, value]) => `${key}: ${value}`)
                     .join('\n');
             };
 
-            result.records.forEach(record => {
+            // Processa os dados para o grafo
+            resultGrafo.records.forEach(record => {
                 const discente = record.get('d');
                 const instituicao = record.get('i');
                 const curso = record.get('c');
                 const orientador = record.get('o');
+
+                // Adiciona a instituição nas propriedades do discente
+                const discenteProps = {
+                    ...discente.properties,
+                    NM_ENTIDADE_ENSINO: instituicao.properties.NM_ENTIDADE_ENSINO
+                };
 
                 const discenteId = discente.identity.toString();
                 const instituicaoId = instituicao.identity.toString();
@@ -41,7 +74,12 @@ const grafosController = {
                 const orientadorId = orientador.identity.toString();
 
                 if (!nodeSet.has(discenteId)) {
-                    nodes.push({ id: discenteId, label: discente.properties.NM_DISCENTE, title: gerarTitle(discente.properties), color: { background: '#C990C0', border: '#B261A5' } });
+                    nodes.push({
+                        id: discenteId,
+                        label: discente.properties.NM_DISCENTE,
+                        title: gerarTitle(discenteProps),
+                        color: { background: '#C990C0', border: '#B261A5' }
+                    });
 
                     nodeSet.add(discenteId);
                 }
@@ -69,7 +107,32 @@ const grafosController = {
                 edges.push({ from: discenteId, to: orientadorId });
             });
 
-            return res.json({ nodes, edges });
+            // Processa os dados para a tabela
+            const tableData = resultTabela.records.map(record => {
+                const discente = record.get('d');
+                const instituicao = record.get('i');
+                const orientador = record.get('o');
+
+                return {
+                    NM_DISCENTE: discente.properties.NM_DISCENTE || 'Não informado',
+                    NM_ENTIDADE_ENSINO: instituicao.properties.NM_ENTIDADE_ENSINO || 'Não informado',
+                    NM_ORIENTADOR_PRINCIPAL: orientador.properties.NM_ORIENTADOR_PRINCIPAL || 'Não informado',
+                    NM_TESE_DISSERTACAO: discente.properties.NM_TESE_DISSERTACAO || 'Não informado',
+                    DS_GRAU_ACADEMICO_DISCENTE: discente.properties.DS_GRAU_ACADEMICO_DISCENTE || 'Não informado',
+                    NM_SITUACAO_DISCENTE: discente.properties.NM_SITUACAO_DISCENTE || 'Não informado',
+                    DT_MATRICULA_DISCENTE: discente.properties.DT_MATRICULA_DISCENTE || 'Não informado',
+                    DT_SITUACAO_DISCENTE: discente.properties.DT_SITUACAO_DISCENTE || 'Não informado',
+                    AN_NASCIMENTO_DISCENTE: discente.properties.AN_NASCIMENTO_DISCENTE || 'Não informado',
+                    DS_FAIXA_ETARIA: discente.properties.DS_FAIXA_ETARIA || 'Não informado',
+                    QT_MES_TITULACAO: discente.properties.QT_MES_TITULACAO || 'Não informado'
+                };
+            });
+
+            return res.json({
+                nodes,
+                edges,
+                tableData
+            });
         } catch (error) {
             console.error(`Erro ao consultar o banco de dados: ${error}`);
 
