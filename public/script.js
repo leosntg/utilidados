@@ -94,6 +94,8 @@ $(document).ready(function() {
         columns: [
             { data: 'NM_DISCENTE', title: 'Nome do Discente' },
             { data: 'NM_ENTIDADE_ENSINO', title: 'Instituição de Ensino' },
+            { data: 'SG_ENTIDADE_ENSINO', title: 'Sigla Instituição' },
+            { data: 'NM_PROGRAMA_IES', title: 'Programa IES' },
             { data: 'NM_ORIENTADOR_PRINCIPAL', title: 'Orientador Principal' },
             { data: 'NM_TESE_DISSERTACAO', title: 'Título do Trabalho' },
             { data: 'DS_GRAU_ACADEMICO_DISCENTE', title: 'Grau Acadêmico' },

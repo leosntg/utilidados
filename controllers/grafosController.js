@@ -116,7 +116,9 @@ const grafosController = {
                 return {
                     NM_DISCENTE: discente.properties.NM_DISCENTE || 'Não informado',
                     NM_ENTIDADE_ENSINO: instituicao.properties.NM_ENTIDADE_ENSINO || 'Não informado',
-                    NM_ORIENTADOR_PRINCIPAL: orientador.properties.NM_ORIENTADOR_PRINCIPAL || 'Não informado',
+                    SG_ENTIDADE_ENSINO: instituicao.properties.SG_ENTIDADE_ENSINO || 'Não informado',
+                    NM_PROGRAMA_IES: discente.properties.NM_PROGRAMA_IES || 'Não informado',
+                    NM_ORIENTADOR_PRINCIPAL: discente.properties.NM_ORIENTADOR_PRINCIPAL || 'Não informado',
                     NM_TESE_DISSERTACAO: discente.properties.NM_TESE_DISSERTACAO || 'Não informado',
                     DS_GRAU_ACADEMICO_DISCENTE: discente.properties.DS_GRAU_ACADEMICO_DISCENTE || 'Não informado',
                     NM_SITUACAO_DISCENTE: discente.properties.NM_SITUACAO_DISCENTE || 'Não informado',
