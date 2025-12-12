@@ -122,9 +122,15 @@ const grafosController = {
                     NM_SITUACAO_DISCENTE: discente.properties.NM_SITUACAO_DISCENTE || 'Não informado',
                     DT_MATRICULA_DISCENTE: discente.properties.DT_MATRICULA_DISCENTE || 'Não informado',
                     DT_SITUACAO_DISCENTE: discente.properties.DT_SITUACAO_DISCENTE || 'Não informado',
-                    AN_NASCIMENTO_DISCENTE: discente.properties.AN_NASCIMENTO_DISCENTE || 'Não informado',
+                    AN_NASCIMENTO_DISCENTE: discente.properties.AN_NASCIMENTO_DISCENTE ?
+                        (typeof discente.properties.AN_NASCIMENTO_DISCENTE === 'object' ?
+                            discente.properties.AN_NASCIMENTO_DISCENTE.toNumber() :
+                            discente.properties.AN_NASCIMENTO_DISCENTE) || 'Não informado' : 'Não informado',
                     DS_FAIXA_ETARIA: discente.properties.DS_FAIXA_ETARIA || 'Não informado',
-                    QT_MES_TITULACAO: discente.properties.QT_MES_TITULACAO || 'Não informado'
+                    QT_MES_TITULACAO: discente.properties.QT_MES_TITULACAO ?
+                        (typeof discente.properties.QT_MES_TITULACAO === 'object' ?
+                            discente.properties.QT_MES_TITULACAO.toNumber() :
+                            discente.properties.QT_MES_TITULACAO) || 'Não informado' : 'Não informado'
                 };
             });
 
