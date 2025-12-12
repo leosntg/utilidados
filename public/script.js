@@ -1,6 +1,9 @@
-// Carregar opções dos filtros
+let filtrosAtuais = {
+    instituicoes: [],
+    orientador: null
+};
+
 async function carregarFiltros() {
-    // Inicializa Select2 para instituições
     const instituicoesSelect = $('[data-filtro="instituicoes"]');
     instituicoesSelect.select2({
         theme: 'bootstrap-5',
@@ -11,7 +14,6 @@ async function carregarFiltros() {
         dropdownParent: instituicoesSelect.parent()
     });
 
-    // Inicializa Select2 para orientadores
     const orientadoresSelect = $('[data-filtro="orientadores"]');
     orientadoresSelect.select2({
         theme: 'bootstrap-5',
@@ -22,7 +24,6 @@ async function carregarFiltros() {
         dropdownParent: orientadoresSelect.parent()
     });
 
-    // Carrega instituições
     const instResponse = await fetch('/api/filtros/instituicoes');
     const instData = await instResponse.json();
     const instOptions = instData.records.map(record => {
@@ -31,10 +32,10 @@ async function carregarFiltros() {
     });
     instituicoesSelect.append(instOptions).trigger('change');
 
-    // Atualiza orientadores quando instituições são selecionadas
     instituicoesSelect.on('change', async function() {
         const selectedInst = $(this).val();
         orientadoresSelect.empty();
+        filtrosAtuais.instituicoes = selectedInst || [];
 
         if (selectedInst && selectedInst.length > 0) {
             try {
@@ -58,7 +59,6 @@ async function carregarFiltros() {
     });
 }
 document.addEventListener('DOMContentLoaded', carregarFiltros);
-// });
 
 document.querySelector('.js-filtros button').addEventListener('click', async function (event) {
     event.preventDefault();
@@ -68,10 +68,11 @@ document.querySelector('.js-filtros button').addEventListener('click', async fun
     const instituicao = $('[data-filtro="instituicoes"]').val() || [];
     const orientador = $('[data-filtro="orientadores"]').val()?.[0] || null;
 
-    // Constrói os parâmetros da URL
+    filtrosAtuais.instituicoes = instituicao;
+    filtrosAtuais.orientador = orientador;
+
     const params = new URLSearchParams();
 
-    // Adiciona cada instituição selecionada como um parâmetro separado
     if (instituicao && instituicao.length > 0) {
         instituicao.forEach(inst => params.append('instituicao', inst));
     }
@@ -85,11 +86,37 @@ document.querySelector('.js-filtros button').addEventListener('click', async fun
     this.disabled = false;
 });
 
-// Inicializa a tabela
 $(document).ready(function() {
     const table = $('#tabela-dados').DataTable({
         language: {
             url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/pt-BR.json'
+        },
+        serverSide: true,
+        processing: true,
+        ajax: function(data, callback, settings) {
+            const requestParams = new URLSearchParams();
+
+            if (filtrosAtuais.instituicoes && filtrosAtuais.instituicoes.length > 0) {
+                filtrosAtuais.instituicoes.forEach(inst => requestParams.append('instituicao', inst));
+            }
+
+            if (filtrosAtuais.orientador) {
+                requestParams.append('orientador', filtrosAtuais.orientador);
+            }
+
+            requestParams.append('draw', data.draw);
+            requestParams.append('start', data.start);
+            requestParams.append('length', data.length);
+
+            console.log('Requisição da tabela:', requestParams.toString());
+
+            fetch(`/api/grafos/tabela/paginada?${requestParams.toString()}`)
+                .then(response => response.json())
+                .then(data => callback(data))
+                .catch(error => {
+                    console.error('Erro ao carregar dados:', error);
+                    callback({ data: [], draw: data.draw, recordsTotal: 0, recordsFiltered: 0 });
+                });
         },
         columns: [
             { data: 'NM_DISCENTE', title: 'Nome do Discente' },
@@ -123,7 +150,7 @@ $(document).ready(function() {
                 charset: 'UTF-8',
                 bom: true,
                 customize: function(csv) {
-                    return '\ufeff' + csv; // Adiciona BOM para UTF-8
+                    return '\ufeff' + csv;
                 }
             }
         ],
@@ -135,7 +162,25 @@ $(document).ready(function() {
 });
 
 document.addEventListener('DOMContentLoaded', async function () {
-    await obterGrafos('/api/grafos');
+    const response = await fetch('/api/grafos');
+    const data = await response.json();
+
+    console.log('Dados recebidos:', data);
+
+    const grafos = document.getElementById('grafos');
+    new vis.Network(grafos, { nodes: data.nodes, edges: data.edges }, {
+        nodes: {
+            shape: 'dot'
+        },
+        physics: {
+            enabled: true,
+            solver: 'forceAtlas2Based',
+            stabilization: {
+                iterations: 100,
+                updateInterval: 25
+            }
+        }
+    });
 });
 
 async function obterGrafos(url) {
@@ -144,7 +189,6 @@ async function obterGrafos(url) {
 
     console.log('Dados recebidos:', data);
 
-    // Atualiza o grafo
     const grafos = document.getElementById('grafos');
     new vis.Network(grafos, { nodes: data.nodes, edges: data.edges }, {
         nodes: {
@@ -160,13 +204,6 @@ async function obterGrafos(url) {
         }
     });
 
-    // Atualiza a tabela
-    const tableData = data.tableData;
-
-    console.log('Dados para a tabela:', tableData);
-
     const table = $('#tabela-dados').DataTable();
-    table.clear();
-    table.rows.add(tableData);
-    table.draw();
+    table.ajax.reload();
 }

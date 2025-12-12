@@ -4,7 +4,6 @@ const grafosController = {
     index: async (req, res) => {
         let { instituicao, orientador } = req.query;
 
-        // Converte instituicao para array se for string
         if (instituicao && !Array.isArray(instituicao)) {
             instituicao = [instituicao];
         }
@@ -14,22 +13,6 @@ const grafosController = {
         try {
             console.log('Parâmetros recebidos:', { instituicao, orientador });
 
-            // Query para a tabela (sem limite)
-            const resultTabela = await session.run(`
-            MATCH (d:Discente)-[:INSTITUICAO]->(i:Instituicao),
-                  (d)-[:CURSO]->(c:Curso),
-                  (d)-[:ORIENTADOR]->(o:Orientador)
-            WHERE
-                (size($instituicoes) = 0 OR i.NM_ENTIDADE_ENSINO IN $instituicoes) AND
-                (coalesce($orientador, '') = '' OR o.NM_ORIENTADOR_PRINCIPAL = $orientador)
-            WITH d, i, c, o
-            ORDER BY d.NM_DISCENTE
-            RETURN d, i, c, o`, {
-                instituicoes: instituicao || [],
-                orientador: orientador || null
-            });
-
-            // Query para o grafo (limitada a 100)
             const resultGrafo = await session.run(`
             MATCH (d:Discente)-[:INSTITUICAO]->(i:Instituicao),
                   (d)-[:CURSO]->(c:Curso),
@@ -55,14 +38,12 @@ const grafosController = {
                     .join('\n');
             };
 
-            // Processa os dados para o grafo
             resultGrafo.records.forEach(record => {
                 const discente = record.get('d');
                 const instituicao = record.get('i');
                 const curso = record.get('c');
                 const orientador = record.get('o');
 
-                // Adiciona a instituição nas propriedades do discente
                 const discenteProps = {
                     ...discente.properties,
                     NM_ENTIDADE_ENSINO: instituicao.properties.NM_ENTIDADE_ENSINO
@@ -107,7 +88,74 @@ const grafosController = {
                 edges.push({ from: discenteId, to: orientadorId });
             });
 
-            // Processa os dados para a tabela
+            return res.json({
+                nodes,
+                edges
+            });
+        } catch (error) {
+            console.error(`Erro ao consultar o banco de dados: ${error}`);
+
+            return res.status(500).json({ mensagem: 'Erro no servidor ao processar a consulta.' });
+        } finally {
+            await session.close();
+        }
+    },
+
+    tabelaPaginada: async (req, res) => {
+        let { instituicao, orientador, draw, start, length } = req.query;
+
+        if (instituicao && !Array.isArray(instituicao)) {
+            instituicao = [instituicao];
+        }
+
+        const pageStart = Math.floor(parseInt(start) || 0);
+        const pageLength = Math.floor(parseInt(length) || 10);
+        const drawCount = Math.floor(parseInt(draw) || 1);
+
+        const session = driver.session();
+
+        try {
+            console.log('Paginação recebida:', { instituicao, orientador, pageStart, pageLength });
+
+            const countResult = await session.run(`
+            MATCH (d:Discente)-[:INSTITUICAO]->(i:Instituicao),
+                  (d)-[:CURSO]->(c:Curso),
+                  (d)-[:ORIENTADOR]->(o:Orientador)
+            WHERE
+                (size($instituicoes) = 0 OR i.NM_ENTIDADE_ENSINO IN $instituicoes) AND
+                (coalesce($orientador, '') = '' OR o.NM_ORIENTADOR_PRINCIPAL = $orientador)
+            RETURN count(d) as total`, {
+                instituicoes: instituicao || [],
+                orientador: orientador || null
+            });
+
+            const totalRecords = countResult.records[0].get('total').toNumber();
+
+            const resultTabela = await session.run(`
+            MATCH (d:Discente)-[:INSTITUICAO]->(i:Instituicao),
+                  (d)-[:CURSO]->(c:Curso),
+                  (d)-[:ORIENTADOR]->(o:Orientador)
+            WHERE
+                (size($instituicoes) = 0 OR i.NM_ENTIDADE_ENSINO IN $instituicoes) AND
+                (coalesce($orientador, '') = '' OR o.NM_ORIENTADOR_PRINCIPAL = $orientador)
+            WITH d, i, c, o
+            ORDER BY d.NM_DISCENTE
+            SKIP toInteger($skip)
+            LIMIT toInteger($limit)
+            RETURN d, i, c, o`, {
+                instituicoes: instituicao || [],
+                orientador: orientador || null,
+                skip: pageStart,
+                limit: pageLength
+            });
+
+            const convertNeo4jInteger = (value) => {
+                if (value && typeof value === 'object' && (value.high !== undefined || value.low !== undefined)) {
+                    return value.toNumber();
+                }
+                return value;
+            };
+
             const tableData = resultTabela.records.map(record => {
                 const discente = record.get('d');
                 const instituicao = record.get('i');
@@ -124,27 +172,28 @@ const grafosController = {
                     NM_SITUACAO_DISCENTE: discente.properties.NM_SITUACAO_DISCENTE || 'Não informado',
                     DT_MATRICULA_DISCENTE: discente.properties.DT_MATRICULA_DISCENTE || 'Não informado',
                     DT_SITUACAO_DISCENTE: discente.properties.DT_SITUACAO_DISCENTE || 'Não informado',
-                    AN_NASCIMENTO_DISCENTE: discente.properties.AN_NASCIMENTO_DISCENTE ?
-                        (typeof discente.properties.AN_NASCIMENTO_DISCENTE === 'object' ?
-                            discente.properties.AN_NASCIMENTO_DISCENTE.toNumber() :
-                            discente.properties.AN_NASCIMENTO_DISCENTE) || 'Não informado' : 'Não informado',
+                    AN_NASCIMENTO_DISCENTE: convertNeo4jInteger(discente.properties.AN_NASCIMENTO_DISCENTE) || 'Não informado',
                     DS_FAIXA_ETARIA: discente.properties.DS_FAIXA_ETARIA || 'Não informado',
-                    QT_MES_TITULACAO: discente.properties.QT_MES_TITULACAO ?
-                        (typeof discente.properties.QT_MES_TITULACAO === 'object' ?
-                            discente.properties.QT_MES_TITULACAO.toNumber() :
-                            discente.properties.QT_MES_TITULACAO) || 'Não informado' : 'Não informado'
+                    QT_MES_TITULACAO: convertNeo4jInteger(discente.properties.QT_MES_TITULACAO) || 'Não informado'
                 };
             });
 
             return res.json({
-                nodes,
-                edges,
-                tableData
+                draw: drawCount,
+                recordsTotal: totalRecords,
+                recordsFiltered: totalRecords,
+                data: tableData
             });
         } catch (error) {
             console.error(`Erro ao consultar o banco de dados: ${error}`);
 
-            return res.status(500).json({ mensagem: 'Erro no servidor ao processar a consulta.' });
+            return res.status(500).json({
+                draw: drawCount,
+                recordsTotal: 0,
+                recordsFiltered: 0,
+                data: [],
+                mensagem: 'Erro no servidor ao processar a consulta.'
+            });
         } finally {
             await session.close();
         }
