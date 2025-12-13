@@ -3,6 +3,61 @@ let filtrosAtuais = {
     orientador: null
 };
 
+// Função para converter dados para CSV com UTF-8
+function converterParaCSV(dados) {
+    if (!dados || dados.length === 0) {
+        return '';
+    }
+
+    // Pega os nomes das colunas do primeiro registro
+    const colunas = Object.keys(dados[0]);
+
+    // Cria o cabeçalho
+    const cabecalho = colunas.map(col => `"${col}"`).join(';');
+
+    // Cria as linhas de dados
+    const linhas = dados.map(registro => {
+        return colunas.map(col => {
+            let valor = registro[col] || '';
+            // Escapa aspas duplas e envolve em aspas se contiver ponto e vírgula, quebra de linha ou aspas
+            valor = String(valor).replace(/"/g, '""');
+            if (valor.includes(';') || valor.includes('\n') || valor.includes('"')) {
+                valor = `"${valor}"`;
+            }
+            return valor;
+        }).join(';');
+    });
+
+    // Junta tudo com quebra de linha e adiciona BOM
+    return '\ufeff' + cabecalho + '\n' + linhas.join('\n');
+}
+
+// Função para converter dados para CSV com apenas as colunas visíveis
+function converterParaCSVFiltrado(dados, colunas) {
+    if (!dados || dados.length === 0) {
+        return '';
+    }
+
+    // Cria o cabeçalho com as colunas visíveis
+    const cabecalho = colunas.map(col => `"${col}"`).join(';');
+
+    // Cria as linhas de dados
+    const linhas = dados.map(registro => {
+        return colunas.map(col => {
+            let valor = registro[col] || '';
+            // Escapa aspas duplas e envolve em aspas se contiver ponto e vírgula, quebra de linha ou aspas
+            valor = String(valor).replace(/"/g, '""');
+            if (valor.includes(';') || valor.includes('\n') || valor.includes('"')) {
+                valor = `"${valor}"`;
+            }
+            return valor;
+        }).join(';');
+    });
+
+    // Junta tudo com quebra de linha e adiciona BOM
+    return '\ufeff' + cabecalho + '\n' + linhas.join('\n');
+}
+
 async function carregarFiltros() {
     const instituicoesSelect = $('[data-filtro="instituicoes"]');
     instituicoesSelect.select2({
@@ -66,10 +121,10 @@ document.querySelector('.js-filtros button').addEventListener('click', async fun
     this.disabled = true;
 
     const instituicao = $('[data-filtro="instituicoes"]').val() || [];
-    const orientador = $('[data-filtro="orientadores"]').val()?.[0] || null;
+    const orientadores = $('[data-filtro="orientadores"]').val() || [];
 
     filtrosAtuais.instituicoes = instituicao;
-    filtrosAtuais.orientador = orientador;
+    filtrosAtuais.orientadores = orientadores;
 
     const params = new URLSearchParams();
 
@@ -77,8 +132,8 @@ document.querySelector('.js-filtros button').addEventListener('click', async fun
         instituicao.forEach(inst => params.append('instituicao', inst));
     }
 
-    if (orientador) {
-        params.append('orientador', orientador);
+    if (orientadores && orientadores.length > 0) {
+        orientadores.forEach(or => params.append('orientador', or));
     }
 
     await obterGrafos(`/api/grafos?${params.toString()}`);
@@ -100,8 +155,8 @@ $(document).ready(function() {
                 filtrosAtuais.instituicoes.forEach(inst => requestParams.append('instituicao', inst));
             }
 
-            if (filtrosAtuais.orientador) {
-                requestParams.append('orientador', filtrosAtuais.orientador);
+            if (filtrosAtuais.orientadores && filtrosAtuais.orientadores.length > 0) {
+                filtrosAtuais.orientadores.forEach(or => requestParams.append('orientador', or));
             }
 
             requestParams.append('draw', data.draw);
@@ -141,16 +196,108 @@ $(document).ready(function() {
                 className: 'btn btn-primary'
             },
             {
-                extend: 'csv',
                 text: 'Exportar CSV',
                 className: 'btn btn-success',
-                exportOptions: {
-                    columns: ':visible'
-                },
-                charset: 'UTF-8',
-                bom: true,
-                customize: function(csv) {
-                    return '\ufeff' + csv;
+                action: function(e, dt, node, config) {
+                    // Desabilita o botão e adiciona loading
+                    const $btn = $(node);
+                    const originalHTML = $btn.html();
+                    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Exportando...');
+
+                    try {
+                        // Pega os índices das colunas visíveis
+                        const colunasVisiveis = dt.columns(':visible').indexes().toArray();
+
+                        // Array com os nomes das colunas na ordem da DataTable
+                        const colunasDataTable = [
+                            'NM_DISCENTE',
+                            'NM_ENTIDADE_ENSINO',
+                            'SG_ENTIDADE_ENSINO',
+                            'NM_PROGRAMA_IES',
+                            'NM_ORIENTADOR_PRINCIPAL',
+                            'NM_TESE_DISSERTACAO',
+                            'DS_GRAU_ACADEMICO_DISCENTE',
+                            'NM_SITUACAO_DISCENTE',
+                            'DT_MATRICULA_DISCENTE',
+                            'DT_SITUACAO_DISCENTE',
+                            'AN_NASCIMENTO_DISCENTE',
+                            'DS_FAIXA_ETARIA',
+                            'QT_MES_TITULACAO'
+                        ];
+
+                        // Pega os nomes das colunas visíveis
+                        const colunasParaExportar = colunasVisiveis.map(idx => colunasDataTable[idx]);
+
+                        console.log('Colunas visíveis:', colunasParaExportar);
+
+                        // Monta os parâmetros para a requisição
+                        const requestParams = new URLSearchParams();
+
+                        // Adiciona instituições dos filtros globais
+                        if (filtrosAtuais.instituicoes && filtrosAtuais.instituicoes.length > 0) {
+                            filtrosAtuais.instituicoes.forEach(inst => requestParams.append('instituicao', inst));
+                        }
+
+                        // Adiciona orientadores dos filtros globais
+                        if (filtrosAtuais.orientadores && filtrosAtuais.orientadores.length > 0) {
+                            filtrosAtuais.orientadores.forEach(or => requestParams.append('orientador', or));
+                        }
+
+                        // Busca todos os dados filtrados
+                        fetch(`/api/grafos/tabela/exportar?${requestParams.toString()}`)
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error(`HTTP error! status: ${response.status}`);
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                console.log('Dados recebidos para exportação:', data);
+
+                                if (!data.data || data.data.length === 0) {
+                                    alert('Nenhum dado para exportar');
+                                    $btn.prop('disabled', false).html(originalHTML);
+                                    return;
+                                }
+
+                                // Filtra os dados apenas com as colunas visíveis
+                                const dadosFiltrados = data.data.map(registro => {
+                                    const novoRegistro = {};
+                                    colunasParaExportar.forEach(coluna => {
+                                        novoRegistro[coluna] = registro[coluna];
+                                    });
+                                    return novoRegistro;
+                                });
+
+                                // Converte os dados para CSV
+                                const csv = converterParaCSVFiltrado(dadosFiltrados, colunasParaExportar);
+
+                                // Cria e dispara o download
+                                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                                const link = document.createElement('a');
+                                const url = URL.createObjectURL(blob);
+                                link.setAttribute('href', url);
+                                link.setAttribute('download', 'dados_discentes.csv');
+                                link.style.visibility = 'hidden';
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                URL.revokeObjectURL(url);
+
+                                // Reabilita o botão
+                                $btn.prop('disabled', false).html(originalHTML);
+                            })
+                            .catch(error => {
+                                console.error('Erro ao exportar dados:', error);
+                                alert('Erro ao exportar dados: ' + error.message);
+                                // Reabilita o botão em caso de erro
+                                $btn.prop('disabled', false).html(originalHTML);
+                            });
+                    } catch (error) {
+                        console.error('Erro no processamento:', error);
+                        alert('Erro no processamento: ' + error.message);
+                        $btn.prop('disabled', false).html(originalHTML);
+                    }
                 }
             }
         ],
